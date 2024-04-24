@@ -1,22 +1,20 @@
 app: vjepa
-nodes: 16
-tasks_per_node: 8
+nodes: 1
+tasks_per_node: 2
 data:
   dataset_type: VideoDataset
   datasets:
-    - /your_path_to_kinetics710_csv_file_index.csv
-    - /your_path_to_ssv2_csv_file_index.csv
-    - /your_path_to_howto100m_csv_file_index.csv
+    - data_jepa.csv
   decode_one_clip: true
   batch_size: 24
   num_clips: 1
-  num_frames: 16
+  num_frames: 22
   tubelet_size: 2
   sampling_rate: 4
   crop_size: 224
   patch_size: 16
   pin_mem: true
-  num_workers: 12
+  num_workers: 2
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -30,7 +28,7 @@ data_aug:
   - 1.0
   reprob: 0.0
 logging:
-  folder: /your_absolute_file_path_for_saving_logs_and_checkpoints/
+  folder: /scratch/amr10073/jepa/model_checkpoints
   write_tag: jepa
 loss:
   loss_exp: 1.0
@@ -66,7 +64,7 @@ meta:
   seed: 234
   eval_freq: 100
   use_sdpa: true
-  dtype: bfloat16
+  dtype: float16
 model:
   model_name: vit_large
   pred_depth: 12

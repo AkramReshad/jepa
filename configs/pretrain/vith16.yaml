@@ -10,7 +10,7 @@ data:
   decode_one_clip: true
   batch_size: 24
   num_clips: 1
-  num_frames: 16
+  num_frames: 22
   tubelet_size: 2
   sampling_rate: 4
   crop_size: 224
@@ -30,7 +30,7 @@ data_aug:
   - 1.0
   reprob: 0.0
 logging:
-  folder: /your_absolute_file_path_for_saving_logs_and_checkpoints/
+  folder: /scratch/amr10073/jepa/model_checkpoints
   write_tag: jepa
 loss:
   loss_exp: 1.0
@@ -66,7 +66,7 @@ meta:
   seed: 234
   eval_freq: 100
   use_sdpa: true
-  dtype: bfloat16
+  dtype: float16
 model:
   model_name: vit_huge
   pred_depth: 12
