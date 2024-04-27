@@ -1,6 +1,6 @@
 app: vjepa
 nodes: 1
-tasks_per_node: 2
+tasks_per_node: 8
 data:
   dataset_type: VideoDataset
   datasets:
@@ -28,7 +28,7 @@ data_aug:
   - 1.0
   reprob: 0.0
 logging:
-  folder: /scratch/amr10073/jepa/model_checkpoints
+  folder: model_checkpoints
   write_tag: jepa
 loss:
   loss_exp: 1.0
@@ -64,7 +64,7 @@ meta:
   seed: 234
   eval_freq: 100
   use_sdpa: true
-  dtype: float16
+  dtype: bfloat16
 model:
   model_name: vit_large
   pred_depth: 12

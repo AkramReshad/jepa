@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
 
     criterion = nn.L1Loss()
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
     model = DeepDenseNet(num_patches=980, feature_size=feature_size).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.0001)

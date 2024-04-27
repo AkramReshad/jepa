@@ -10,7 +10,7 @@ data:
   filter_short_videos: false
   num_clips: 1
   num_frames: 22
-  num_workers: 2
+  num_workers: 4
   patch_size: 16
   pin_mem: true
   sampling_rate: 4
@@ -26,7 +26,7 @@ data_aug:
   - 1.0
   reprob: 0.0
 logging:
-  folder: /scratch/amr10073/jepa/model_checkpoints
+  folder: model_checkpoints/vit_base
   write_tag: jepa
 loss:
   loss_exp: 1.0
@@ -64,7 +64,7 @@ meta:
   seed: 234
   use_sdpa: true
 model:
-  model_name: vit_large
+  model_name: vit_base
   pred_depth: 12
   pred_embed_dim: 384
   uniform_power: true
@@ -85,4 +85,4 @@ optimization:
   start_lr: 0.0002
   warmup: 40
   weight_decay: 0.04
-tasks_per_node: 2
+tasks_per_node: 4

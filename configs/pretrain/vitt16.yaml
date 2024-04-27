@@ -1,22 +1,20 @@
 app: vjepa
-nodes: 30
+nodes: 1
 tasks_per_node: 8
 data:
   dataset_type: VideoDataset
   datasets:
-    - /your_path_to_kinetics710_csv_file_index.csv
-    - /your_path_to_ssv2_csv_file_index.csv
-    - /your_path_to_howto100m_csv_file_index.csv
+    - data_jepa.csv
   decode_one_clip: true
-  batch_size: 10
+  batch_size: 24
   num_clips: 1
   num_frames: 22
   tubelet_size: 2
   sampling_rate: 4
-  crop_size: 384
+  crop_size: 224
   patch_size: 16
   pin_mem: true
-  num_workers: 12
+  num_workers: 4
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -61,14 +59,14 @@ mask:
     max_temporal_keep: 1.0
     max_keep: null
 meta:
-  load_checkpoint: false
+  load_checkpoint: true
   read_checkpoint: null
   seed: 234
   eval_freq: 100
   use_sdpa: true
-  dtype: float16
+  dtype: bfloat16
 model:
-  model_name: vit_huge
+  model_name: vit_tiny
   pred_depth: 12
   pred_embed_dim: 384
   uniform_power: true

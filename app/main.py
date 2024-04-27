@@ -15,6 +15,7 @@ import yaml
 from app.scaffold import main as app_main
 from src.utils.distributed import init_distributed
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '--fname', type=str,
@@ -59,13 +60,29 @@ def process_main(rank, fname, world_size, devices):
     # Launch the app with loaded config
     app_main(params['app'], args=params)
 
+def clear_all_gpu_memory():
+    if torch.cuda.is_available():
+        # Explicitly delete tensors on each GPU
+        for i in range(torch.cuda.device_count()):
+            torch.cuda.set_device(i)
+            torch.cuda.empty_cache()  # Clear cache on the current GPU
+            import gc
+            gc.collect()  # Explicitly run the garbage collector
+            print(f"Attempted to clear all objects from CUDA Device {i}: {torch.cuda.get_device_name(i)}")
+    else:
+        print("No CUDA devices available.")
+
+
 
 if __name__ == '__main__':
     args = parser.parse_args()
     num_gpus = len(args.devices)
     mp.set_start_method('spawn')
-    for rank in range(num_gpus):
-        mp.Process(
-            target=process_main,
-            args=(rank, args.fname, num_gpus, args.devices)
-        ).start()
+    try:
+        for rank in range(num_gpus):
+            mp.Process(
+                target=process_main,
+                args=(rank, args.fname, num_gpus, args.devices)
+            ).start()
+    except:
+        clear_all_gpu_memory()

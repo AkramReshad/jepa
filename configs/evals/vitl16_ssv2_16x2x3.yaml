@@ -34,6 +34,6 @@ pretrain:
   tight_silu: false
   use_sdpa: true
   patch_size: 16
-  folder: /scratch/amr10073/jepa/pretrained_models/
+  folder: pretrained_models/
   checkpoint: jepa-latest.pth.tar  # name of pretrained model file inside folder
   write_tag: jepa
