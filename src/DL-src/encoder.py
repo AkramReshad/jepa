@@ -153,14 +153,10 @@ def create_abstract_dataset(video_folder_path, encoder,transform, window_size = 
                 tensor_image = tensor_image.to(torch.device('cpu'))
                 # save output to file, path is key + first frame number - last frame number
                 output_path = os.path.join(video_folder_path+"_abstract", folder, folder + f"_{i}_{i+window_size}")
-<<<<<<< HEAD
                 torch.save(output, output_path + ".pt")
             
 
 
-=======
-                torch.save(output, output_path)
->>>>>>> fbb0a06 (Finish Fully connected, train on lightning)
 
 
 def get_encoder_model(args_eval, device):

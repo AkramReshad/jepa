@@ -85,6 +85,7 @@ def create_dataloader(directory, batch_size, shuffle=True, num_workers=0):
 def train(data_loader, model, encoder, criterion, optimizer, device,epochs):
     model.train()
     encoder.to(device)
+    model.to(device)
     for epoch in range(epochs):
         cum_loss = 0
         for data in data_loader:
