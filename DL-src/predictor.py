@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import os
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-from PIL import Image
+from video_utils import make_transforms
+from DL_utils import VideoFrameDataset
+
 
 class DeepDenseNet(nn.Module):
     def __init__(self, num_patches, feature_size, hidden_dim=192, num_layers=8):
@@ -37,50 +38,6 @@ class DeepDenseNet(nn.Module):
         x = x.view(batch_size, num_clips, num_patches, features)
         return x
     
-class VideoFrameDataset(Dataset):
-    def __init__(self, directory, encoder, transform=None):
-        super().__init__()
-        self.videos = []  # List to hold lists of frame paths for each video
-        self.encoder = encoder
-        self.window_size = 11
-        for param in self.encoder.parameters():
-            param.requires_grad = False
-
-        self.transform = transform if transform is not None else transforms.ToTensor()
-
-        # Iterate over each folder
-        for video_dir in sorted(os.listdir(directory)):
-            video_path = os.path.join(directory, video_dir)
-            if os.path.isdir(video_path):
-                # Collect all frame file paths
-                image_files = sorted([os.path.join(video_path, f) for f in os.listdir(video_path) if f.endswith('.png')])
-                self.videos.append(image_files)
-
-    def __len__(self):
-        return len(self.videos)
-
-    def __getitem__(self, idx):
-        video_frames = self.videos[idx]
-        sequences = []
-
-        # Generate all sequences from 0-10 up to 10-21
-        for start in range(self.window_size):  # This creates sequences 0-10, 1-11, ..., 10-21
-            frame_sequence = video_frames[start:start+self.window_size]  # Get 11 frames starting from 'start'
-            images = [self.transform(Image.open(frame)) for frame in frame_sequence]
-            
-            # Encode the frames with the provided encoder
-            tensor = torch.stack(images).unsqueeze(0)
-
-            sequences.append(tensor.squeeze(0))
-        stacked_sequences = torch.stack(sequences)
-        stacked_sequences = stacked_sequences.permute(0, 2, 1, 3, 4)
-
-        return stacked_sequences
-
-def create_dataloader(directory, batch_size, shuffle=True, num_workers=0):
-    dataset = VideoFrameDataset(directory)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-    return loader
 
 def train(data_loader, model, encoder, criterion, optimizer, device,epochs):
     model.train()
@@ -89,10 +46,14 @@ def train(data_loader, model, encoder, criterion, optimizer, device,epochs):
     for epoch in range(epochs):
         cum_loss = 0
         for data in data_loader:
-            data = data.to(device)
+            # data = data.to(device)
+            data,_ = data
             data_representation = []
+            print(f"batch: {len(data)}, example: {data[0].shape}")
             for i in range(data.shape[1]):
                 data_representation.append(encoder([[data[:,i,:,:]]])[0])
+                print(data_representation[i].shape)
+                exit()
             data_representation = torch.stack(data_representation)
             inputs = data_representation[:, :-1, :, :]  # All sequences except the last
             labels = data_representation[:, 1:, :, :] 
@@ -125,19 +86,26 @@ if __name__ == "__main__":
 
     normalization = ((0.485, 0.456, 0.406),
                      (0.229, 0.224, 0.225))
-    transform = transforms.Compose([
-            transforms.Resize(size=int(resolution * 256/224)),
-            transforms.CenterCrop(size=resolution),
-            transforms.ToTensor(),
-            transforms.Normalize(normalization[0], normalization[1])])
     
+    # transform = transforms.Compose([
+    #         transforms.Resize(size=int(resolution * 256/224)),
+    #         transforms.CenterCrop(size=resolution),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize(normalization[0], normalization[1])])
+
+    transform = make_transforms(training=False)
+
     dataset = VideoFrameDataset(directory, encoder, transform)
 
-    loader = DataLoader(dataset, batch_size=10, shuffle=True) # returns torch.Size([batch_size, number_of_clips, number_of_patches, feature_size]) 
-
+    loader = DataLoader(dataset, batch_size=1, shuffle=True) # returns torch.Size([batch_size, number_of_clips, number_of_patches, feature_size]) 
 
     criterion = nn.L1Loss()
+<<<<<<< HEAD:src/DL-src/fcn.py
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+=======
+    # criterion = nn.MSELoss()
+    device = torch.device("cpu")
+>>>>>>> 6ff5796 (added shit):DL-src/predictor.py
     print(device)
     model = DeepDenseNet(num_patches=980, feature_size=feature_size).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.0001)

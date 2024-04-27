@@ -13,7 +13,7 @@ data:
   num_views_per_segment: 1
   frame_step: 1
 optimization:
-  attend_across_segments: false
+  attend_across_segments: true
   num_epochs: 20
   resolution: 224
   batch_size: 4

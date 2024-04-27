@@ -8,7 +8,7 @@
 import os
 import sys
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # -- FOR DISTRIBUTED TRAINING ENSURE ONLY 1 DEVICE VISIBLE PER PROCESS
 try:
@@ -33,9 +33,7 @@ import torchvision.transforms as transforms
 
 from torch.nn.parallel import DistributedDataParallel
 
-from evals.video_classification_frozen.utils import (
-    ClipAggregation,
-)
+from video_utils import ClipAggregation
 import src.models.vision_transformer as vit
 
 logging.basicConfig()
@@ -115,7 +113,7 @@ def main(args_eval, resume_preempt=False):
     encoder = get_encoder_model(args_eval, device)
     print(f"transforms {transform}")
     print(f"encoder {encoder}")
-    create_abstract_dataset(base_path, encoder, transform, window_size = 10)
+    # create_abstract_dataset(base_path, encoder, transform, window_size = 10)
 
 
 def create_abstract_dataset(video_folder_path, encoder,transform, window_size = 10):
@@ -195,7 +193,8 @@ def get_encoder_model(args_eval, device):
     encoder = ClipAggregation(
             encoder,
             tubelet_size=tubelet_size,
-            attend_across_segments=attend_across_segments
+            attend_across_segments=attend_across_segments,
+            use_pos_embed=True
         ).to(device)
 
     return encoder
