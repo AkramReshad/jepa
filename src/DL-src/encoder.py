@@ -110,7 +110,7 @@ def main(args_eval, resume_preempt=False):
             transforms.ToTensor(),
             transforms.Normalize(normalization[0], normalization[1])])
 
-    base_path = "/Users/akramreshad/nyu_grad_school/2024Spring/Deep Learning/final_project/dataset/unlabeled"
+    base_path = "E:/Ahem/dataset_student/dataset/unlabeled"
 
     encoder = get_encoder_model(args_eval, device)
     print(f"transforms {transform}")
@@ -126,8 +126,6 @@ def create_abstract_dataset(video_folder_path, encoder,transform, window_size = 
         folder_path = os.path.join(video_folder_path, folder)
         if "video" in folder_path:
             videos[folder] = []
-            if int(folder.split("_")[1]) < 3613:
-                continue
             if int(folder.split("_")[1]) % 1000 == 0:
                 print(f"Processing video {folder}")
             for frame in os.listdir(folder_path):
@@ -155,7 +153,7 @@ def create_abstract_dataset(video_folder_path, encoder,transform, window_size = 
                 tensor_image = tensor_image.to(torch.device('cpu'))
                 # save output to file, path is key + first frame number - last frame number
                 output_path = os.path.join(video_folder_path+"_abstract", folder, folder + f"_{i}_{i+window_size}")
-                torch.save(output, output_path)
+                torch.save(output, output_path + ".pt")
             
 
 
@@ -260,7 +258,7 @@ def init_model(
     return encoder
 
 if __name__ == "__main__":
-    with open('configs/evals/vitt16.yaml', 'r') as file:
+    with open('configs/evals/vitsmall16.yaml', 'r') as file:
         args_eval = yaml.safe_load(file)
     main(args_eval)
 
