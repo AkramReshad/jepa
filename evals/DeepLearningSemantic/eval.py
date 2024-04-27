@@ -110,21 +110,18 @@ def main(args_eval, resume_preempt=False):
             transforms.Normalize(normalization[0], normalization[1])])
     x = []
 
-    # Define the path to the image
-    #  loop through every folder in
-    # /Users/akramreshad/nyu_grad_school/2024Spring/Deep Learning/final_project/dataset/unlabeled
-    # videos = []
-    # base_path = "/Users/akramreshad/nyu_grad_school/2024Spring/Deep Learning/final_project/dataset/unlabeled"
-    # for folder in sorted(os.listdir(base_path)):
-    #     folder_path = os.path.join(base_path, folder)
-    #     if "video" in folder_path:
-    #         print(folder)
-    #         for frame in os.listdir(folder_path):
-    #                 image_path = os.path.join(folder_path, frame)
-    #                 with Image.open(image_path) as image:
-    #                     videos.append(image.copy())  # Make a copy of the image if you need to store it
+    videos = []
+    base_path = "/Users/akramreshad/nyu_grad_school/2024Spring/Deep Learning/final_project/dataset/unlabeled"
+    for folder in sorted(os.listdir(base_path)):
+        folder_path = os.path.join(base_path, folder)
+        if "video" in folder_path:
+            print(folder)
+            for frame in os.listdir(folder_path):
+                    image_path = os.path.join(folder_path, frame)
+                    with Image.open(image_path) as image:
+                        videos.append(image.copy())  # Make a copy of the image if you need to store it
 
-    # print(len(videos))
+    print(len(videos))
 
     for i in range(1):
         image_path = f"/Users/akramreshad/nyu_grad_school/2024Spring/Deep Learning/final_project/dataset/train/video_00000/image_{i}.png"
@@ -164,11 +161,11 @@ def main(args_eval, resume_preempt=False):
 
     
     # Process each video clip independently and aggregate
-    # encoder = ClipAggregation(
-    #     encoder,
-    #     tubelet_size=tubelet_size,
-    #     attend_across_segments=attend_across_segments
-    # ).to(device)
+    encoder = ClipAggregation(
+        encoder,
+        tubelet_size=tubelet_size,
+        attend_across_segments=attend_across_segments
+    ).to(device)
     encoder.eval()
     for p in encoder.parameters():
         p.requires_grad = False
@@ -206,36 +203,6 @@ def load_pretrained(
     del checkpoint
     return encoder
 
-# def init_model(
-#     device,
-#     pretrained,
-#     model_name,
-#     patch_size=16,
-#     crop_size=224,
-#     # Video specific parameters
-#     frames_per_clip=16,
-#     tubelet_size=2,
-#     use_sdpa=False,
-#     use_SiLU=False,
-#     tight_SiLU=True,
-#     uniform_power=False,
-#     checkpoint_key='target_encoder'
-# ):
-#     encoder = vit.__dict__[model_name](
-#         img_size=crop_size,
-#         patch_size=patch_size,
-#         num_frames=frames_per_clip,
-#         tubelet_size=tubelet_size,
-#         uniform_power=uniform_power,
-#         use_sdpa=use_sdpa,
-#         use_SiLU=use_SiLU,
-#         tight_SiLU=tight_SiLU,
-#     )
-
-#     encoder.to(device)
-#     encoder = load_pretrained(encoder=encoder, pretrained=pretrained, checkpoint_key=checkpoint_key)
-#     return encoder
-
 def init_model(
     device,
     pretrained,
@@ -261,14 +228,44 @@ def init_model(
         use_SiLU=use_SiLU,
         tight_SiLU=tight_SiLU,
     )
-    if frames_per_clip > 1:
-        def forward_prehook(module, input):
-            input = input[0]  # [B, C, H, W]
-            input = input.unsqueeze(2).repeat(1, 1, frames_per_clip, 1, 1)
-            return (input)
-
-        encoder.register_forward_pre_hook(forward_prehook)
 
     encoder.to(device)
     encoder = load_pretrained(encoder=encoder, pretrained=pretrained, checkpoint_key=checkpoint_key)
     return encoder
+
+# def init_model(
+#     device,
+#     pretrained,
+#     model_name,
+#     patch_size=16,
+#     crop_size=224,
+#     # Video specific parameters
+#     frames_per_clip=16,
+#     tubelet_size=2,
+#     use_sdpa=False,
+#     use_SiLU=False,
+#     tight_SiLU=True,
+#     uniform_power=False,
+#     checkpoint_key='target_encoder'
+# ):
+#     encoder = vit.__dict__[model_name](
+#         img_size=crop_size,
+#         patch_size=patch_size,
+#         num_frames=frames_per_clip,
+#         tubelet_size=tubelet_size,
+#         uniform_power=uniform_power,
+#         use_sdpa=use_sdpa,
+#         use_SiLU=use_SiLU,
+#         tight_SiLU=tight_SiLU,
+#     )
+#     if frames_per_clip > 1:
+#         def forward_prehook(module, input):
+#             input = input[0]  # [B, C, H, W]
+#             input = input.unsqueeze(2).repeat(1, 1, frames_per_clip, 1, 1)
+#             return (input)
+
+#         encoder.register_forward_pre_hook(forward_prehook)
+
+#     encoder.to(device)
+#     encoder = load_pretrained(encoder=encoder, pretrained=pretrained, checkpoint_key=checkpoint_key)
+#     return encoder
