@@ -5,10 +5,14 @@ from dl_src.unet import UNet
 from torch.utils.data import DataLoader
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel
+from torch.nn import Module
 from matplotlib import pyplot as plt
 from dl_src.video_utils import make_transforms
 from dl_src.DL_utils import VideoFrameDataset
 from dl_src.encoder import get_encoder_model
+from torch.utils.data.distributed import DistributedSampler
+
+import os
 import logging
 import yaml
 import numpy as np
@@ -17,7 +21,8 @@ from src.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def save_checkpoint(model,epoch,optimizer,loss,path):
+def save_checkpoint(model,epoch,optimizer,loss,path,rank):
+    if rank != 0: return
     save_dict = {
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
@@ -76,7 +81,7 @@ def data_preprocessing(batched_stacked_sequences, encoder, device):
 
 def train_step(data, masks,model, encoder, criterion, optimizer, device, batch_size,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
 
-    output = model(data).to(device, non_blocking=True)
+    output = model(data)
 
     # take the index of the max value of every pixel vector, this indicates class for that pixel in the output
     semantic_mask = output
@@ -94,7 +99,7 @@ def train_step(data, masks,model, encoder, criterion, optimizer, device, batch_s
 
 def val_step(data, masks,model, encoder, criterion, device,batch_size,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
 
-    output = model(reshaped_data).to(device, non_blocking=True)
+    output = model(data)
 
     # take the index of the max value of every pixel vector, this indicates class for that pixel in the output
     semantic_mask = output
@@ -103,14 +108,14 @@ def val_step(data, masks,model, encoder, criterion, device,batch_size,number_of_
     # change dtype to long
     #We want to compare the masks for the first clip to predict the final frame
     loss = criterion(batched_semantic_mask[:,0,:,:],masks[:,-1,:,:])
-    print(f"val loss: {loss.item()}")
     return loss, batched_semantic_mask, masks
-
 
 
 def main():
     train_directory = '/teamspace/uploads/test/train'
     valid_directory = '/teamspace/uploads/test/val'
+    latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_0'
+    use_latest_path = False
     feature_size = 192  # Example value
     seed = 0
 
@@ -125,7 +130,7 @@ def main():
     original_width = 240
 
     epochs = 10
-    batch_size = 32
+    batch_size = 25
     lr= 0.0001
 
     np.random.seed(seed)
@@ -155,29 +160,37 @@ def main():
     
 
     transform = make_transforms(training=False)
-    train_dataset = VideoFrameDataset(train_directory, encoder, transform)
+    logging.info("Datasets")
+    dataset = VideoFrameDataset(train_directory, encoder, transform)
     valid_dataset = VideoFrameDataset(valid_directory, encoder, transform)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) # returns torch.Size([batch_size, number_of_clips, number_of_patches, feature_size]) 
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True) # returns torch.Size([batch_size, number_of_clips, number_of_patches, feature_size]) 
-    
-    logging.info(f"finished loading data")
-    # Initialize the model
-    model = UNet(num_channels=num_channels, n_classes=num_classes, feature_size=feature_size, bilinear=True)
-    model.to(device, non_blocking=True)
+    logging.info("Samplers")
+    train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
+    valid_sampler = torch.utils.data.distributed.DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+    logging.info("Loaders")
+    train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, pin_memory=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, sampler=valid_sampler, pin_memory=True)
+    logging.info("Model")
+    model = UNet(num_channels=num_channels, n_classes=num_classes, feature_size=feature_size, bilinear=True).to(device, non_blocking=True)
     model = DistributedDataParallel(model, static_graph=True)
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    encoder = encoder.to(device, non_blocking=True)
-
     train_loss = []
     val_loss = []
     logging.info(f"start training")
     logging.info(f"Number of batches:{len(train_loader)}")
-    for epoch in range(epochs):
+    start_epoch = 0
+
+    if os.path.exists(latest_path) and use_latest_path:
+        model, optimizer, start_epoch, loss = load_checkpoint(model,optimizer,latest_path)
+        logging.info("USING LATEST PATH")
+
+    for epoch in range(start_epoch,epochs):
         logging.info(f"EPOCH:{epoch}")
         epoch_loss = 0
+        train_sampler.set_epoch(epoch)  # This ensures shuffling for each epoch
+
         for i,data in enumerate(train_loader): # BATCH_SIZE IS NUMBER OF VIDEOS
             batched_stacked_sequences, masks = data
             batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
@@ -189,19 +202,25 @@ def main():
             loss =train_step(reshaped_data,masks, model, encoder, criterion, optimizer, device,batch_size)
             epoch_loss += loss.item()
             train_loss.append(loss)
-            if i % 10 == 0:
-                logging.info(f"Iteration: {i}, loss:{loss.item()}")
-        save_checkpoint(model=model,epoch=epoch, optimizer=optimizer,loss=epoch_loss/len(train_loader), path=f'jepa/model_checkpoints/future_mask_prediction/EPOCH_{epoch}_avg_loss_{epoch_loss/len(train_loader)}')
-        logging.info(f"\t We got an average training loss of {epoch_loss/len(train_loader)}")
 
-        epoch_loss = 0
-        for i,data in enumerate(valid_loader):
-            batched_stacked_sequences, masks = data
-            batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
-            masks = masks.to(device, non_blocking=True)
-            batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
-            reshaped_data = data_preprocessing(batched_stacked_sequences, encoder, device)
-            loss, batched_semantic_mask,true_masks = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
-            epoch_loss += loss.item()
-            val_loss.append(loss)
-        logging.info(f"\t We got an average val loss of {epoch_loss/len(train_loader)}")
+            logging.info(f"\tIteration: {i}, loss:{loss.item()}")
+        
+        latest_path =f'model_checkpoints/future_mask_prediction/EPOCH_{epoch}'
+        
+        save_checkpoint(model=model,epoch=epoch, optimizer=optimizer,loss=epoch_loss/len(train_loader), path=latest_path,rank=rank)
+        
+        logging.info(f"\t We got an average training loss of {epoch_loss/len(train_loader)}")
+        
+        if epoch %5 == 0 and epoch !=0:
+            epoch_loss = 0
+            valid_sampler.set_epoch(epoch)  # This ensures shuffling for each epoch
+            for i,data in enumerate(valid_loader):
+                batched_stacked_sequences, masks = data
+                batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
+                masks = masks.to(device, non_blocking=True)
+                batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
+                reshaped_data = data_preprocessing(batched_stacked_sequences, encoder, device)
+                loss, batched_semantic_mask,true_masks = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
+                epoch_loss += loss.item()
+                val_loss.append(loss)
+            logging.info(f"\t We got an average val loss of {epoch_loss/len(train_loader)}")

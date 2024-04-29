@@ -22,12 +22,15 @@ class VideoFrameDataset(Dataset):
             if os.path.isdir(video_path):
                 # Collect all frame file paths
                 image_files = sorted([os.path.join(video_path, f) for f in os.listdir(video_path) if f.endswith('.png')],key=lambda x: int(x[:-4].split('_')[-1]))
+                # if len(image_files) !=22: continue
                 mask_file = os.path.join(video_path, 'mask.npy')
                 if os.path.exists(mask_file):
                     masks = np.load(mask_file)
                     self.videos.append([image_files, masks])
                 else:
                     self.videos.append([image_files, None])
+
+            # if len(self.videos)>10:break
 
     def __len__(self):
         return len(self.videos)
@@ -51,3 +54,53 @@ class VideoFrameDataset(Dataset):
             return stacked_sequences, torch.tensor(masks, dtype= torch.int64)
 
         return stacked_sequences, 0
+
+########### THIS ASSUMES HIGH CPU RAM ##############
+
+# class VideoFrameDataset(Dataset):
+#     def __init__(self, directory, encoder, transform=None):
+#         super().__init__()
+#         self.data = []  # List to hold preprocessed tensors for each video
+#         self.masks = []  # Corresponding masks if they exist
+#         self.encoder = encoder
+#         self.window_size = 11
+#         for param in self.encoder.parameters():
+#             param.requires_grad = False
+
+#         self.transform = transform if transform is not None else transforms.ToTensor()
+
+#         # Iterate over each folder, load and preprocess images
+#         for video_dir in sorted(os.listdir(directory)):
+#             video_path = os.path.join(directory, video_dir)
+#             if os.path.isdir(video_path):
+#                 image_files = sorted([os.path.join(video_path, f) for f in os.listdir(video_path) if f.endswith('.png')], key=lambda x: int(x.split('_')[-1].split('.')[0]))
+#                 images = self.transform([Image.open(frame) for frame in image_files])
+#                 self.data.append(torch.stack(images))
+
+#                 mask_file = os.path.join(video_path, 'mask.npy')
+#                 if os.path.exists(mask_file):
+#                     masks = np.load(mask_file)
+#                     self.masks.append(torch.tensor(masks, dtype=torch.int64))
+#                 else:
+#                     self.masks.append(None)
+#                 if len(self.data) >10:
+#                     break
+#     def __len__(self):
+#         return len(self.data)
+
+#     def __getitem__(self, idx):
+#         video_tensors = self.data[idx]
+#         mask = self.masks[idx]
+#         sequences = []
+
+#         # Generate all sequences from 0-10 up to 10-21
+#         for start in range(len(video_tensors) - self.window_size + 1):
+#             sequence = video_tensors[start:start + self.window_size]
+#             sequences.append(sequence)
+
+#         stacked_sequences = torch.stack(sequences)
+        
+#         if mask is not None:
+#             return stacked_sequences, mask
+#         return stacked_sequences, 0
+
