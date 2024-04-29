@@ -118,7 +118,7 @@ def main(args_eval, resume_preempt=False):
 
 def create_abstract_dataset(video_folder_path, encoder,transform, window_size = 10):
     videos = {}
-    device = torch.device('cuda')
+    device = torch.device('cpu')
     encoder.to(device)
     for folder in sorted(os.listdir(video_folder_path)):
         folder_path = os.path.join(video_folder_path, folder)
@@ -148,6 +148,8 @@ def create_abstract_dataset(video_folder_path, encoder,transform, window_size = 
                 tensor_image = tensor_image.permute(0, 2, 1, 3,4)
                 tensor_image = tensor_image.to(device)
                 output = encoder([[tensor_image]])[0]
+                print(f"output shape {output.shape}")
+                exit()
                 tensor_image = tensor_image.to(torch.device('cpu'))
                 # save output to file, path is key + first frame number - last frame number
                 output_path = os.path.join(video_folder_path+"_abstract", folder, folder + f"_{i}_{i+window_size}")

@@ -100,12 +100,8 @@ if __name__ == "__main__":
     loader = DataLoader(dataset, batch_size=1, shuffle=True) # returns torch.Size([batch_size, number_of_clips, number_of_patches, feature_size]) 
 
     criterion = nn.L1Loss()
-<<<<<<< HEAD:src/DL-src/fcn.py
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-=======
     # criterion = nn.MSELoss()
     device = torch.device("cpu")
->>>>>>> 6ff5796 (added shit):DL-src/predictor.py
     print(device)
     model = DeepDenseNet(num_patches=980, feature_size=feature_size).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
