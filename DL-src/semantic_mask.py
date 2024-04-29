@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from unet import UNet
 from torch.utils.data import DataLoader
-
+from matplotlib import pyplot as plt
 from video_utils import make_transforms
 from DL_utils import VideoFrameDataset
 
@@ -24,33 +24,71 @@ def pad_patches(data, target_patches=100):
     data = torch.cat([data, padding], dim=2)  # Concatenate along the patch dimension
     return data
 
-def train(data_loader, model, encoder, criterion, optimizer, device,epochs):
-    model.train()
-    encoder.to(device)
-    for epoch in range(epochs):
-        cum_loss = 0
-        for data in data_loader:
-            data = data.to(device)
-            sequences, masks = data
+def data_preprocessing(batched_stacked_sequences, encoder, device):
+     #Each video is a batch of 11 clips
+    batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
 
-            output = model(sequences)
+    #Treat all clips as a single batch
+    batched_stacked_sequences = batched_stacked_sequences.view(batch_size*number_of_clips,color_channels,number_of_frames,height,width)
+    
+    #V_JEPA
+    batched_encoded_sequences = encoder([[batched_stacked_sequences]])[0]
+    
+    clip_batch_size,number_of_patches,feature_size = batched_encoded_sequences.shape
 
-            optimizer.zero_grad()
+    #PAD PATCHES from 980 to 1000 and reshape into 10x10 patches
+    padded_batched_encoded_sequences = pad_patches(batched_encoded_sequences.view(clip_batch_size,10,number_of_patches//10,feature_size))
 
-            loss = criterion(output,masks)
-            print(loss.item())
-            cum_loss += loss.item()
-            loss.backward()
+    # Now Reshape such that the features*temporal frames are in the channel dimension
+    reshaped_data = padded_batched_encoded_sequences.view(batch_size * number_of_clips, 10, 10,10*feature_size)
+    reshaped_data = reshaped_data.permute(0,3,1,2)
 
-            optimizer.step()
-        print(f"Epoch {epoch+1}, Loss: {cum_loss/len(data_loader)}") 
+    return reshaped_data
 
+
+def train_step(data, masks,model, encoder, criterion, optimizer, device, batch_size,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
+
+    output = model(data)
+
+    # take the index of the max value of every pixel vector, this indicates class for that pixel in the output
+    semantic_mask = output
+
+    batched_semantic_mask = semantic_mask.reshape(batch_size,number_of_clips,num_classes,original_height,original_width)
+
+    optimizer.zero_grad()
+    # change dtype to long
+    masks = masks.long()
+
+    #We want to compare the masks for the first clip to predict the final frame
+    loss = criterion(batched_semantic_mask[:,0,:,:],masks[:,-1,:,:])
+    print(f"loss: {loss.item()}")
+
+    loss.backward()
+    optimizer.step()
+    return loss
+
+def val_step(data, masks,model, encoder, criterion, device,batch_size,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
+
+    output = model(reshaped_data)
+
+    # take the index of the max value of every pixel vector, this indicates class for that pixel in the output
+    semantic_mask = output
+
+    batched_semantic_mask = semantic_mask.reshape(batch_size,number_of_clips,num_classes,original_height,original_width)
+    # change dtype to long
+    masks = masks.long()
+
+    #We want to compare the masks for the first clip to predict the final frame
+    loss = criterion(batched_semantic_mask[:,0,:,:],masks[:,-1,:,:])
+    print(f"val loss: {loss.item()}")
+    return loss, batched_semantic_mask, masks
 
 if __name__ == "__main__":
     from encoder import get_encoder_model
     import yaml
 
-    directory = '/Users/akramreshad/nyu_grad_school/2024Spring/Deep Learning/final_project/dataset/unlabeled'
+    train_directory = '/Users/akramreshad/nyu_grad_school/2024Spring/Deep Learning/final_project/dataset/train'
+    valid_directory = '/Users/akramreshad/nyu_grad_school/2024Spring/Deep Learning/final_project/dataset/val'
     feature_size = 192  # Example value
     resolution = 224
 
@@ -61,9 +99,11 @@ if __name__ == "__main__":
         param.requires_grad = False
 
     transform = make_transforms(training=False)
-    dataset = VideoFrameDataset(directory, encoder, transform)
-
-    loader = DataLoader(dataset, batch_size=10, shuffle=True) # returns torch.Size([batch_size, number_of_clips, number_of_patches, feature_size]) 
+    train_dataset = VideoFrameDataset(train_directory, encoder, transform)
+    valid_dataset = VideoFrameDataset(valid_directory, encoder, transform)
+    batch_size = 10
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True) # returns torch.Size([batch_size, number_of_clips, number_of_patches, feature_size]) 
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True) # returns torch.Size([batch_size, number_of_clips, number_of_patches, feature_size]) 
 
     # Define the parameters for the test
     num_frames = 11  # Number of frames, treated as channels in this context
@@ -72,46 +112,46 @@ if __name__ == "__main__":
     num_classes = 49  # Number of classes for segmentation output
     height = 244  # Assumed height for the input
     width = 244  # Assumed width for the input
-
+    original_height = 160
+    original_width = 240
+    
 
     # Initialize the model
     model = UNet(num_channels=num_channels, n_classes=num_classes, feature_size=feature_size, bilinear=True)
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    cum_loss = 0
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    train_loss = []
+    val_loss = []
+    for i,data in enumerate(train_loader): # BATCH_SIZE IS NUMBER OF VIDEOS
+        batched_stacked_sequences, masks = data
 
-    for data in loader: # BATCH_SIZE IS NUMBER OF VIDEOS
+
+        reshaped_data = data_preprocessing(batched_stacked_sequences, encoder, device)
+        loss =train_step(reshaped_data,masks, model, encoder, criterion, optimizer, device,batch_size)
+        train_loss.append(loss)
+        if i >10:
+            break
+    torch.save(model.state_dict(), 'Future_mask_prediction.pth')
+    for i,data in enumerate(valid_loader):
         batched_stacked_sequences, masks = data
         batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
-        batched_stacked_sequences = batched_stacked_sequences.view(batch_size*number_of_clips,color_channels,number_of_frames,height,width)
-        
-        batched_encoded_sequences = encoder([[batched_stacked_sequences]])[0]
-        
-        clip_batch_size,number_of_patches,feature_size = batched_encoded_sequences.shape
 
-        print(f"batched_encoded_sequences shape: {batched_encoded_sequences.shape}")
-        padded_batched_encoded_sequences = pad_patches(batched_encoded_sequences.view(clip_batch_size,10,number_of_patches//10,feature_size))
+        reshaped_data = data_preprocessing(batched_stacked_sequences, encoder, device)
+        loss, batched_semantic_mask,true_masks = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
+        val_loss.append(loss)
 
-        print("Padded shape:", padded_batched_encoded_sequences.shape)
+        # graph the semantic mask and the true mask in one figure for the first clip
+        if i == len(valid_loader)-1 or i ==0:
+            fig, axs = plt.subplots(1, 2)
+            mask = torch.argmax(batched_semantic_mask[0,0,:,:], dim=0)
+            axs[0].imshow(mask.detach().numpy())
+            axs[1].imshow(true_masks[0,-1,:,:].detach().numpy())
+            plt.show()
 
-        # Now, reshape each clip to 10x10
-        reshaped_data = padded_batched_encoded_sequences.view(batch_size * number_of_clips, 10, 10,10*feature_size)
-        reshaped_data = reshaped_data.permute(0,3,1,2)
-        print("Reshaped shape:", reshaped_data.shape)
-
-        output = model(reshaped_data)
-
-
-        print(f"output shape: {output.shape}")
-        print(f"masks shape: {masks.shape}")
         break
-    # # Run the model on the test input
-    # output = model(test_input)
 
-    # # Print the output shape to verify the correct output dimensions
-    # print("Output shape:", output.shape)
-    # # Expected output shape: (1, height, width, num_classes), but it will be (1, num_classes, height, width) due to pytorch conventions
 
-    # # To match expected output shape, you can permute the dimensions if needed for comparison
-    # output_permuted = output.permute(0, 2, 3, 1)  # Change from BxCxHxW to BxHxWxC
-    # print("Output shape after permutation:", output_permuted.shape)
+    # saved model
 

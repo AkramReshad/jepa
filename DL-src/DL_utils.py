@@ -22,7 +22,7 @@ class VideoFrameDataset(Dataset):
             if os.path.isdir(video_path):
                 # Collect all frame file paths
                 image_files = sorted([os.path.join(video_path, f) for f in os.listdir(video_path) if f.endswith('.png')],key=lambda x: int(x[:-4].split('_')[-1]))
-                mask_file = os.path.join(video_path, 'masks.npy')
+                mask_file = os.path.join(video_path, 'mask.npy')
                 if os.path.exists(mask_file):
                     masks = np.load(mask_file)
                     self.videos.append([image_files, masks])
