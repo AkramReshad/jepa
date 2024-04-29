@@ -48,6 +48,6 @@ class VideoFrameDataset(Dataset):
         stacked_sequences = torch.stack(sequences)
         
         if masks is not None:
-            return stacked_sequences, masks
+            return stacked_sequences, torch.tensor(masks, dtype= torch.int64)
 
         return stacked_sequences, 0

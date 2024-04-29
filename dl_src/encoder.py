@@ -33,7 +33,7 @@ import torchvision.transforms as transforms
 
 from torch.nn.parallel import DistributedDataParallel
 
-from video_utils import ClipAggregation
+from dl_src.video_utils import ClipAggregation
 import src.models.vision_transformer as vit
 
 logging.basicConfig()
