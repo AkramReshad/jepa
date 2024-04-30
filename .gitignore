@@ -4,3 +4,5 @@
 *.err
 *.tar
 *.pth
+*.pt
+model_checkpoints/future_mask_prediction/

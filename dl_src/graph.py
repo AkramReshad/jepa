@@ -8,6 +8,8 @@ import torch.nn as nn
 from src.utils.distributed import init_distributed, AllReduce
 from dl_src.unet import UNet
 from torch.utils.data import DataLoader
+from dl_src.semantic_mask import pad_patches, data_preprocessing, load_checkpoint, val_step
+from dl_src.output_mask import forward_pass
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel
 from torch.nn import Module
@@ -22,75 +24,22 @@ import logging
 import yaml
 import numpy as np
 from src.utils.logging import get_logger
-
+from PIL import Image
+import re
 logger = get_logger(__name__)
-def load_checkpoint( model, optimizer,path):
-    checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    return model, optimizer, epoch, loss
 
-
-def val_step(data, masks,model, encoder, criterion, device,batch_size,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
-
-    output = model(data)
-
-    # take the index of the max value of every pixel vector, this indicates class for that pixel in the output
-    semantic_mask = output
-
-    batched_semantic_mask = semantic_mask.reshape(batch_size,number_of_clips,num_classes,original_height,original_width)
-    # change dtype to long
-    #We want to compare the masks for the first clip to predict the final frame
-    loss = criterion(batched_semantic_mask[:,0,:,:],masks[:,-1,:,:])
-    return loss, batched_semantic_mask, masks
-
-
-def output_semantic_mask(data, model, batch_size=5000,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
-
-    output = model(data)
-
-    # take the index of the max value of every pixel vector, this indicates class for that pixel in the output
-    semantic_mask = output
-
-    batched_semantic_mask = semantic_mask.reshape(batch_size,number_of_clips,num_classes,original_height,original_width)
-    # change dtype to long
-    #We want to compare the masks for the first clip to predict the final frame
-    return batched_semantic_mask
-
-
-def data_preprocessing(batched_stacked_sequences, encoder, device):
-     #Each video is a batch of 11 clips
-    batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
-
-    #Treat all clips as a single batch
-    batched_stacked_sequences = batched_stacked_sequences.view(batch_size*number_of_clips,color_channels,number_of_frames,height,width)
-    
-    #V_JEPA
-    batched_encoded_sequences = encoder([[batched_stacked_sequences]])[0]
-    
-    clip_batch_size,number_of_patches,feature_size = batched_encoded_sequences.shape
-
-    #PAD PATCHES from 980 to 1000 and reshape into 10x10 patches
-    padded_batched_encoded_sequences = pad_patches(batched_encoded_sequences.view(clip_batch_size,10,number_of_patches//10,feature_size))
-
-    # Now Reshape such that the features*temporal frames are in the channel dimension
-    reshaped_data = padded_batched_encoded_sequences.view(batch_size * number_of_clips, 10, 10,10*feature_size)
-    reshaped_data = reshaped_data.permute(0,3,1,2).contiguous()
-
-    return reshaped_data
 
 
 def main():
-    train_directory = '/teamspace/uploads/test/train'
-    hidden_directory = '/teamspace/uploads/test/hidden'
-    latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_0'
-    use_latest_path = False
+    train_directory = '/teamspace/studios/this_studio/data/train'
+    valid_directory = '/teamspace/studios/this_studio/data/val'
+    hidden_directory = '/teamspace/studios/this_studio/data/hidden'
+    latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_9'
+    use_latest_path = True
     feature_size = 192  # Example value
     seed = 0
-
     # Define the parameters for the test
+
     num_frames = 11  # Number of frames, treated as channels in this context
     feature_size = 384  # Feature size per patch
     num_channels = (num_frames-1) * feature_size  # Total number of input channels
@@ -101,7 +50,7 @@ def main():
     original_width = 240
 
     epochs = 10
-    batch_size = 25
+    batch_size = 20
     lr= 0.0001
 
     np.random.seed(seed)
@@ -123,7 +72,7 @@ def main():
         device = torch.device('cuda:0')
         torch.cuda.set_device(device)
 
-    with open('configs/evals/vitsmall16.yaml', 'r') as file:
+    with open('configs/evals/graph.yaml', 'r') as file:
         args_eval = yaml.safe_load(file)
     encoder = get_encoder_model(args_eval,device=device)
     for param in encoder.parameters():
@@ -133,10 +82,13 @@ def main():
     transform = make_transforms(training=False)
     logging.info("Datasets")
     hidden_dataset = VideoFrameDataset(hidden_directory, encoder, transform)
+    
     logging.info("Samplers")
     hidden_sampler = torch.utils.data.distributed.DistributedSampler(hidden_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+    
     logging.info("Loaders")
     hidden_loader = DataLoader(hidden_dataset, batch_size=batch_size, sampler=hidden_sampler, pin_memory=True)
+
     logging.info("Model")
     model = UNet(num_channels=num_channels, n_classes=num_classes, feature_size=feature_size, bilinear=True).to(device, non_blocking=True)
     model = DistributedDataParallel(model, static_graph=True)
@@ -144,26 +96,22 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    train_loss = []
-    val_loss = []
-    logging.info(f"start training")
-    logging.info(f"Number of batches:{len(hidden_sampler)}")
-    start_epoch = 0
 
     if os.path.exists(latest_path) and use_latest_path:
-        model, optimizer, start_epoch, loss = load_checkpoint(model,optimizer,latest_path)
-        logging.info("USING LATEST PATH")
-
-        epoch_loss = 0  # This ensures shuffling for each epoch
         for i,data in enumerate(hidden_loader):
-            batched_stacked_sequences, masks = data
+            batched_stacked_sequences = data
             batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
             masks = masks.to(device, non_blocking=True)
             batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
             reshaped_data = data_preprocessing(batched_stacked_sequences, encoder, device)
-            batched_semantic_mask = output_semantic_mask(reshaped_data,model)
+            _, batched_semantic_mask, _ = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
 
-            fig, axs = plt.subplots(1, 2)
-            mask = torch.argmax(batched_semantic_mask[0,0,:,:], dim=0)
-            axs[0].imshow(mask.detach().numpy())
-            plt.show()
+            if use_jaccard:
+                jaccard = JaccardIndex(task="multiclass", num_classes=49)
+
+                batched_semantic_mask_idx = torch.argmax(batched_semantic_mask,dim=2).to(device)
+                jaccard = jaccard.to(device)
+                
+                average_jaccard += jaccard(batched_semantic_mask_idx[:,0,:,:], masks[:,-1,:,:])
+                
+        logging.info(f"Jaccard Value is: {average_jaccard/len(valid_loader)}")

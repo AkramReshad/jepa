@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from src.utils.distributed import init_distributed, AllReduce
 from dl_src.unet import UNet
+from dl_src.semantic_mask import pad_patches, data_preprocessing, load_checkpoint, val_step
 from torch.utils.data import DataLoader
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel
@@ -16,7 +17,7 @@ from dl_src.video_utils import make_transforms
 from dl_src.DL_utils import VideoFrameDataset
 from dl_src.encoder import get_encoder_model
 from torch.utils.data.distributed import DistributedSampler
-
+from torchmetrics import JaccardIndex
 import os
 import logging
 import yaml
@@ -24,30 +25,10 @@ import numpy as np
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
-def load_checkpoint( model, optimizer,path):
-    checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    return model, optimizer, epoch, loss
 
 
-def val_step(data, masks,model, encoder, criterion, device,batch_size,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
 
-    output = model(data)
-
-    # take the index of the max value of every pixel vector, this indicates class for that pixel in the output
-    semantic_mask = output
-
-    batched_semantic_mask = semantic_mask.reshape(batch_size,number_of_clips,num_classes,original_height,original_width)
-    # change dtype to long
-    #We want to compare the masks for the first clip to predict the final frame
-    loss = criterion(batched_semantic_mask[:,0,:,:],masks[:,-1,:,:])
-    return loss, batched_semantic_mask, masks
-
-
-def val_step(data, model, batch_size=5000,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
+def forward_pass(data, model, batch_size=5000,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
 
     output = model(data)
 
@@ -60,33 +41,13 @@ def val_step(data, model, batch_size=5000,number_of_clips=11,num_classes=49,orig
     return batched_semantic_mask
 
 
-def data_preprocessing(batched_stacked_sequences, encoder, device):
-     #Each video is a batch of 11 clips
-    batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
-
-    #Treat all clips as a single batch
-    batched_stacked_sequences = batched_stacked_sequences.view(batch_size*number_of_clips,color_channels,number_of_frames,height,width)
-    
-    #V_JEPA
-    batched_encoded_sequences = encoder([[batched_stacked_sequences]])[0]
-    
-    clip_batch_size,number_of_patches,feature_size = batched_encoded_sequences.shape
-
-    #PAD PATCHES from 980 to 1000 and reshape into 10x10 patches
-    padded_batched_encoded_sequences = pad_patches(batched_encoded_sequences.view(clip_batch_size,10,number_of_patches//10,feature_size))
-
-    # Now Reshape such that the features*temporal frames are in the channel dimension
-    reshaped_data = padded_batched_encoded_sequences.view(batch_size * number_of_clips, 10, 10,10*feature_size)
-    reshaped_data = reshaped_data.permute(0,3,1,2).contiguous()
-
-    return reshaped_data
-
 
 def main():
-    train_directory = '/teamspace/uploads/test/train'
-    valid_directory = '/teamspace/uploads/test/hidden'
+    train_directory = '/teamspace/studios/this_studio/data/train'
+    valid_directory = '/teamspace/studios/this_studio/data/val'
+    hidden_directory = '/teamspace/studios/this_studio/data/hidden'
     latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_0'
-    use_latest_path = False
+    use_latest_path = True
     feature_size = 192  # Example value
     seed = 0
 
@@ -123,7 +84,7 @@ def main():
         device = torch.device('cuda:0')
         torch.cuda.set_device(device)
 
-    with open('configs/evals/vitsmall16.yaml', 'r') as file:
+    with open('configs/evals/output_mask.yaml', 'r') as file:
         args_eval = yaml.safe_load(file)
     encoder = get_encoder_model(args_eval,device=device)
     for param in encoder.parameters():
@@ -146,7 +107,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-
+    use_jaccard = True
     train_loss = []
     val_loss = []
     logging.info(f"start training")
@@ -156,20 +117,22 @@ def main():
     if os.path.exists(latest_path) and use_latest_path:
         model, optimizer, start_epoch, loss = load_checkpoint(model,optimizer,latest_path)
         logging.info("USING LATEST PATH")
-
-        epoch_loss = 0  # This ensures shuffling for each epoch
+        average_jaccard = 0
         for i,data in enumerate(valid_loader):
             batched_stacked_sequences, masks = data
             batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
             masks = masks.to(device, non_blocking=True)
             batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
             reshaped_data = data_preprocessing(batched_stacked_sequences, encoder, device)
-            loss, batched_semantic_mask,true_masks = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
-            epoch_loss += loss.item()
-            val_loss.append(loss)
-        logging.info(f"\t We got an average val loss of {epoch_loss/len(train_loader)}")
+            _, batched_semantic_mask, _ = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
 
-    jaccard = JaccardIndex(task="multiclass", num_classes=49)
+            if use_jaccard:
+                jaccard = JaccardIndex(task="multiclass", num_classes=49)
 
-    score = jaccard(batched_semantic_mask, true_masks)
-    print(f"Score on given dataset {score}")
+                batched_semantic_mask_idx = torch.argmax(batched_semantic_mask,dim=2).to(device)
+                jaccard = jaccard.to(device)
+                
+                average_jaccard += jaccard(batched_semantic_mask_idx[:,0,:,:], masks[:,-1,:,:])
+                
+        logging.info(f"Jaccard Value is: {average_jaccard/len(valid_loader)}")
+        
