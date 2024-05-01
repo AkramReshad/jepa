@@ -2,12 +2,12 @@ import numpy as np
 from torchmetrics import JaccardIndex
 import torch
 
-
+import matplotlib.colors as mcolors
 import torch
 import torch.nn as nn
 from src.utils.distributed import init_distributed, AllReduce
 from dl_src.unet import UNet
-from dl_src.semantic_mask import pad_patches, data_preprocessing, load_checkpoint, val_step
+from dl_src.future_semantic_mask import pad_patches, data_preprocessing, load_checkpoint, val_step
 from torch.utils.data import DataLoader
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel
@@ -43,10 +43,10 @@ def forward_pass(data, model, batch_size=5000,number_of_clips=11,num_classes=49,
 
 
 def main():
-    train_directory = '/teamspace/studios/this_studio/data/train'
-    valid_directory = '/teamspace/studios/this_studio/data/val'
+    train_directory = '/teamspace/uploads/test/train'
+    valid_directory = '/teamspace/uploads/test/val'
     hidden_directory = '/teamspace/studios/this_studio/data/hidden'
-    latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_0'
+    latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_25_noreg'
     use_latest_path = True
     feature_size = 192  # Example value
     seed = 0
@@ -128,11 +128,41 @@ def main():
 
             if use_jaccard:
                 jaccard = JaccardIndex(task="multiclass", num_classes=49)
+                
+                batched_semantic_mask_idx = torch.argmax(batched_semantic_mask,dim=2).to(device).long()
 
-                batched_semantic_mask_idx = torch.argmax(batched_semantic_mask,dim=2).to(device)
                 jaccard = jaccard.to(device)
                 
                 average_jaccard += jaccard(batched_semantic_mask_idx[:,0,:,:], masks[:,-1,:,:])
-                
+            # plot 1  batched_semantic_mask and the true mask in the same figure and save it to a file
+             
+
+            colors = plt.cm.get_cmap('tab20', num_classes)
+
+            # Normalize from 0 to number of classes
+            norm = mcolors.Normalize(vmin=0, vmax=num_classes-1)
+
+            # Set up the figure and axis
+            fig, axes = plt.subplots(1,3)
+
+            
+            axes[0].imshow(batched_semantic_mask_idx[0,0,:,:].cpu().detach().numpy(), cmap=colors, norm=norm)
+            axes[1].imshow(masks[0,-1,:,:].cpu().detach().numpy(), cmap=colors, norm=norm)
+            axes[2].imshow(torch.zeros_like(masks[0,-1,:,:].cpu().detach()).numpy()+1, cmap=colors, norm=norm)
+            for ax in axes:
+                ax.axis('off')  # Turn off the axis
+
+            # Create a colorbar
+            sm = plt.cm.ScalarMappable(cmap=colors, norm=norm)
+            sm.set_array([])
+            cbar = fig.colorbar(sm, ax=axes.ravel().tolist(), ticks=np.arange(num_classes), spacing='proportional')
+            cbar.ax.set_yticklabels(np.arange(num_classes))  # Set text labels on the colorbar
+            cbar.set_label('Class IDs')
+
+
+            plt.savefig(f"plots/output_mask_{rank}_.png")
+            plt.show()
+
         logging.info(f"Jaccard Value is: {average_jaccard/len(valid_loader)}")
+        exit()  
         

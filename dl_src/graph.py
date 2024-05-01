@@ -8,7 +8,7 @@ import torch.nn as nn
 from src.utils.distributed import init_distributed, AllReduce
 from dl_src.unet import UNet
 from torch.utils.data import DataLoader
-from dl_src.semantic_mask import pad_patches, data_preprocessing, load_checkpoint, val_step
+from dl_src.future_semantic_mask import pad_patches, data_preprocessing, load_checkpoint, val_step
 from dl_src.output_mask import forward_pass
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel

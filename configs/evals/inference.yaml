@@ -1,4 +1,4 @@
-app: vjepa
+app: inference
 nodes: 1
 tasks_per_node: 8
 eval_name: DeepLearningSemantic

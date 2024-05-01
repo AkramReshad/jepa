@@ -1,6 +1,6 @@
 app: vjepa
 nodes: 1
-tasks_per_node: 4
+tasks_per_node: 8
 data:
   dataset_type: VideoDataset
   datasets:
@@ -14,7 +14,7 @@ data:
   crop_size: 224
   patch_size: 16
   pin_mem: true
-  num_workers: 4
+  num_workers: 8
   filter_short_videos: false
   clip_duration: null
 data_aug:

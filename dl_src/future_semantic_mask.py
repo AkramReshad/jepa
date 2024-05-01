@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from src.utils.distributed import init_distributed, AllReduce
 from dl_src.unet import UNet
 from torch.utils.data import DataLoader
@@ -11,14 +12,16 @@ from dl_src.video_utils import make_transforms
 from dl_src.DL_utils import VideoFrameDataset
 from dl_src.encoder import get_encoder_model
 from torch.utils.data.distributed import DistributedSampler
+from torchmetrics import JaccardIndex
 
 import os
 import logging
 import yaml
 import numpy as np
-from src.utils.logging import get_logger
+from src.utils.logging import get_logger, CSVLogger
 
 logger = get_logger(__name__)
+
 
 
 def save_checkpoint(model,epoch,optimizer,loss,path,rank):
@@ -78,7 +81,6 @@ def data_preprocessing(batched_stacked_sequences, encoder, device):
 
     return reshaped_data
 
-
 def train_step(data, masks,model, encoder, criterion, optimizer, device, batch_size,number_of_clips=11,num_classes=49,original_height=160,original_width=240):
 
     output = model(data)
@@ -92,7 +94,8 @@ def train_step(data, masks,model, encoder, criterion, optimizer, device, batch_s
 
     #We want to compare the masks for the first clip to predict the final frame
     loss = criterion(batched_semantic_mask[:,0,:,:],masks[:,-1,:,:])
-
+    # tv_loss = total_variation_loss(batched_semantic_mask[:,0,:,:])
+    # loss = ce_loss + .01 * tv_loss
     loss.backward()
     optimizer.step()
     return loss
@@ -110,13 +113,23 @@ def val_step(data, masks,model, encoder, criterion, device,batch_size,number_of_
     loss = criterion(batched_semantic_mask[:,0,:,:],masks[:,-1,:,:])
     return loss, batched_semantic_mask, masks
 
+def total_variation_loss(logits):
+    # Assuming 'prob_maps' is of shape [batch_size, num_classes, height, width]
+    prob_maps = F.softmax(logits, dim=1)  # Apply softmax
+    pixel_dif1 = prob_maps[:, :, 1:, :] - prob_maps[:, :, :-1, :]
+    pixel_dif2 = prob_maps[:, :, :, 1:] - prob_maps[:, :, :, :-1]
+    sum_axis = [2, 3]
+    tv_loss = torch.sum(torch.abs(pixel_dif1), dim=sum_axis) + torch.sum(torch.abs(pixel_dif2), dim=sum_axis)
+    return tv_loss.mean()
 
 def main():
     train_directory = '/teamspace/uploads/test/train'
     valid_directory = '/teamspace/uploads/test/val'
-    latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_0'
-    use_latest_path = False
-    feature_size = 192  # Example value
+    latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_25_noreg'
+    log_file= 'model_checkpoints/future_mask_prediction/training_no_tv'
+    val_log_file= 'model_checkpoints/future_mask_prediction/validation_no_tv'
+    use_latest_path = True
+    use_jaccard = False
     seed = 0
 
     # Define the parameters for the test
@@ -129,9 +142,10 @@ def main():
     original_height = 160
     original_width = 240
 
-    epochs = 10
+    epochs = 50
     batch_size = 25
-    lr= 0.0001
+    # lr = 0.0001 epoch 0-4
+    lr= 1e-4
 
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -152,6 +166,22 @@ def main():
         device = torch.device('cuda:0')
         torch.cuda.set_device(device)
 
+        # -- make csv_logger
+    csv_logger = CSVLogger(
+        log_file,
+        ('%d', 'epoch'),
+        ('%d', 'itr'),
+        ('%.5f', 'training_loss'),
+    )
+
+    csv_logger2= CSVLogger(
+        val_log_file,
+        ('%d', 'epoch'),
+        ('%d', 'itr'),
+        ('%.5f', 'val_loss'),
+        ('%.5f', 'jaccard'),
+    )
+
     with open('configs/evals/vitsmall16.yaml', 'r') as file:
         args_eval = yaml.safe_load(file)
     encoder = get_encoder_model(args_eval,device=device)
@@ -161,8 +191,8 @@ def main():
 
     transform = make_transforms(training=False)
     logging.info("Datasets")
-    dataset = VideoFrameDataset(train_directory, encoder, transform)
-    valid_dataset = VideoFrameDataset(valid_directory, encoder, transform)
+    dataset = VideoFrameDataset(train_directory, transform)
+    valid_dataset = VideoFrameDataset(valid_directory, transform)
     logging.info("Samplers")
     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
     valid_sampler = torch.utils.data.distributed.DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
@@ -174,16 +204,18 @@ def main():
     model = DistributedDataParallel(model, static_graph=True)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
 
     train_loss = []
     val_loss = []
     logging.info(f"start training")
     logging.info(f"Number of batches:{len(train_loader)}")
     start_epoch = 0
-
+    jaccard = JaccardIndex(task="multiclass", num_classes=49)
+    jaccard = jaccard
     if os.path.exists(latest_path) and use_latest_path:
         model, optimizer, start_epoch, loss = load_checkpoint(model,optimizer,latest_path)
+        start_epoch  = int(latest_path.split("_")[-2])+1
         logging.info("USING LATEST PATH")
 
     for epoch in range(start_epoch,epochs):
@@ -204,23 +236,37 @@ def main():
             train_loss.append(loss)
 
             logging.info(f"\tIteration: {i}, loss:{loss.item()}")
+            if rank==0: csv_logger.log(epoch,i,loss)
         
-        latest_path =f'model_checkpoints/future_mask_prediction/EPOCH_{epoch}'
+        latest_path =f'model_checkpoints/future_mask_prediction/EPOCH_{epoch}_noreg'
         
         save_checkpoint(model=model,epoch=epoch, optimizer=optimizer,loss=epoch_loss/len(train_loader), path=latest_path,rank=rank)
         
         logging.info(f"\t We got an average training loss of {epoch_loss/len(train_loader)}")
         
-        if epoch %5 == 0 and epoch !=0:
-            epoch_loss = 0
-            valid_sampler.set_epoch(epoch)  # This ensures shuffling for each epoch
-            for i,data in enumerate(valid_loader):
-                batched_stacked_sequences, masks = data
-                batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
-                masks = masks.to(device, non_blocking=True)
-                batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
-                reshaped_data = data_preprocessing(batched_stacked_sequences, encoder, device)
-                loss, batched_semantic_mask,true_masks = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
-                epoch_loss += loss.item()
-                val_loss.append(loss)
-            logging.info(f"\t We got an average val loss of {epoch_loss/len(train_loader)}")
+        # epoch_loss = 0
+        # if epoch %5 == 0:
+        #     valid_sampler.set_epoch(epoch)
+        #     average_jaccard = 0  # This ensures shuffling for each epoch
+        #     for i,data in enumerate(valid_loader):
+        #         batched_stacked_sequences, masks = data
+                
+        #         batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
+        #         batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
+                
+        #         masks = masks.to(device, non_blocking=True)
+                
+        #         reshaped_data = data_preprocessing(batched_stacked_sequences, encoder, device)
+        #         loss, batched_semantic_mask,true_masks = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
+        #         epoch_loss += loss.item()
+        #         val_loss.append(loss)
+
+        #         batched_semantic_mask_idx = torch.argmax(batched_semantic_mask,dim=2).to(device)
+                
+        #         itr_jaccard = jaccard(batched_semantic_mask_idx[:,0,:,:].cpu().detach(), masks[:,-1,:,:].cpu().detach())
+        #         average_jaccard += itr_jaccard
+
+        #         if rank == 0: csv_logger2.log(epoch + 1,i,loss.item(),itr_jaccard)
+        #     logging.info(f"Jaccard Value is: {average_jaccard/len(valid_loader)}")
+
+        #     logging.info(f"\t We got an average val loss of {epoch_loss/len(train_loader)}")
