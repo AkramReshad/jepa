@@ -9,7 +9,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.nn import Module
 from matplotlib import pyplot as plt
 from dl_src.video_utils import make_transforms
-from dl_src.DL_utils import VideoFrameNextPredictionDataset
+from dl_src.DL_utils import VideoFrameNextPredictionDataset,save_checkpoint,load_checkpoint
 from dl_src.encoder import get_encoder_model
 from torch.utils.data.distributed import DistributedSampler
 from torchmetrics import JaccardIndex
@@ -52,23 +52,6 @@ class DeepDenseNet(nn.Module):
         x = x.view(batch_size, number_of_clips, num_patches, features)
         return x
 
-def save_checkpoint(model,epoch,optimizer,loss,path,rank):
-    if rank != 0: return
-    save_dict = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss,
-    }
-    torch.save(save_dict, path)
-
-def load_checkpoint( model, optimizer,path):
-    checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    return model, optimizer, epoch, loss
 
 def data_preprocessing(batched_stacked_sequences, encoder):
      #Each video is a batch of 11 clips

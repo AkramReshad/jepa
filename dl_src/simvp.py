@@ -1,6 +1,11 @@
+"""
+This code was taken from https://github.com/A4Bio/SimVP/blob/master/model.py
+and modified to fit the needs of the project.
+"""
+
 import torch
 from torch import nn
-from modules import ConvSC, Inception
+from simvp_modules import ConvSC, Inception
 
 def stride_generator(N, reverse=False):
     strides = [1, 2]*10

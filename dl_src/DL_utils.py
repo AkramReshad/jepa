@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 import numpy as np
 from PIL import Image
-from torchmetrics import JaccardIndex
+
 
 class VideoFrameDataset(Dataset):
     def __init__(self, directory, transform=None):
@@ -174,3 +174,22 @@ class InferenceDataset(Dataset):
         sequences = [transformed_images[:,i:i+self.window_size,:,:] for i in range(0,22 - self.window_size+1)]
 
         return sequences[0].unsqueeze(0),torch.tensor(0)
+
+def save_checkpoint(model,epoch,optimizer,loss,path,rank):
+    if rank != 0:
+        return
+    save_dict = {
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss,
+    }
+    torch.save(save_dict, path)
+
+def load_checkpoint( model, optimizer,path):
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    loss = checkpoint['loss']
+    return model, optimizer, epoch, loss

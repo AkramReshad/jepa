@@ -31,8 +31,6 @@ import torch
 import torch.multiprocessing as mp
 import torchvision.transforms as transforms
 
-from torch.nn.parallel import DistributedDataParallel
-
 from dl_src.video_utils import ClipAggregation
 import src.models.vision_transformer as vit
 
@@ -108,11 +106,8 @@ def main(args_eval, resume_preempt=False):
             transforms.ToTensor(),
             transforms.Normalize(normalization[0], normalization[1])])
 
-    base_path = "E:/Ahem/dataset_student/dataset/unlabeled"
-
     encoder = get_encoder_model(args_eval, device)
-    print(f"transforms {transform}")
-    print(f"encoder {encoder}")
+
     # create_abstract_dataset(base_path, encoder, transform, window_size = 10)
 
 

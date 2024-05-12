@@ -24,8 +24,6 @@ from src.datasets.utils.video.randerase import RandomErasing
 from src.models.utils.pos_embs import get_1d_sincos_pos_embed
 from src.masks.utils import apply_masks
 
-
-
 class FrameAggregation(nn.Module):
     """
     Process each frame independently and concatenate all tokens

@@ -10,7 +10,7 @@ from torch.nn.parallel import DistributedDataParallel
 from matplotlib import pyplot as plt
 import matplotlib.colors as mcolors
 from dl_src.video_utils import make_transforms
-from dl_src.DL_utils import InferenceDataset
+from dl_src.DL_utils import InferenceDataset,save_checkpoint,load_checkpoint
 from dl_src.encoder import get_encoder_model
 from dl_src.predictor import DeepDenseNet
 from dl_src.frame_semantic_mask import pad_patches
@@ -71,23 +71,6 @@ class inference(nn.Module):
 
         return batched_encoded_sequences
 
-def save_checkpoint(model,epoch,optimizer,loss,path,rank):
-    if rank != 0: return
-    save_dict = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss,
-    }
-    torch.save(save_dict, path)
-
-def load_checkpoint( model, optimizer,path):
-    checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    return model, optimizer, epoch, loss
 
 def main():
     # hidden_directory = ''

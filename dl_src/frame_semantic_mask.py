@@ -10,7 +10,7 @@ from torch.nn import Module
 from matplotlib import pyplot as plt
 import matplotlib.colors as mcolors
 from dl_src.video_utils import make_transforms
-from dl_src.DL_utils import VideoFrameNextSegmentationDataset
+from dl_src.DL_utils import VideoFrameNextSegmentationDataset,save_checkpoint,load_checkpoint
 from dl_src.encoder import get_encoder_model
 from torch.utils.data.distributed import DistributedSampler
 from torchmetrics import JaccardIndex
@@ -23,25 +23,6 @@ from src.utils.logging import get_logger, CSVLogger
 
 logger = get_logger(__name__)
 
-
-
-def save_checkpoint(model,epoch,optimizer,loss,path,rank):
-    if rank != 0: return
-    save_dict = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss,
-    }
-    torch.save(save_dict, path)
-
-def load_checkpoint( model, optimizer,path):
-    checkpoint = torch.load(path)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    return model, optimizer, epoch, loss
 
 def pad_patches(data, target_patches=100):
     """
@@ -187,13 +168,13 @@ def main():
 
     transform = make_transforms(training=False)
     logging.info("Datasets")
-    # dataset = VideoFrameNextSegmentationDataset(train_directory, transform)
+    dataset = VideoFrameNextSegmentationDataset(train_directory, transform)
     valid_dataset = VideoFrameNextSegmentationDataset(valid_directory, transform)
     logging.info("Samplers")
-    # train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
+    train_sampler = torch.utils.data.distributed.DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
     valid_sampler = torch.utils.data.distributed.DistributedSampler(valid_dataset, num_replicas=world_size, rank=rank, shuffle=False)
     logging.info("Loaders")
-    # train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, pin_memory=True)
+    train_loader = DataLoader(dataset, batch_size=batch_size, sampler=train_sampler, pin_memory=True)
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size, sampler=valid_sampler, pin_memory=True)
     logging.info("Model")
     model = UNet(num_channels=num_channels, n_classes=num_classes, feature_size=feature_size, bilinear=True).to(device, non_blocking=True)
@@ -222,28 +203,28 @@ def main():
     for epoch in range(start_epoch,epochs):
         logging.info(f"EPOCH:{epoch}")
         epoch_loss = 0
-        # train_sampler.set_epoch(epoch)  # This ensures shuffling for each epoch
+        train_sampler.set_epoch(epoch)  # This ensures shuffling for each epoch
 
-        # for i,data in enumerate(train_loader): # BATCH_SIZE IS NUMBER OF VIDEOS
-        #     batched_stacked_sequences, masks = data
-        #     batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
-        #     batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
+        for i,data in enumerate(train_loader): # BATCH_SIZE IS NUMBER OF VIDEOS
+            batched_stacked_sequences, masks = data
+            batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
+            batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
 
-        #     masks = masks.to(device, non_blocking=True)
+            masks = masks.to(device, non_blocking=True)
 
-        #     reshaped_data = data_preprocessing(batched_stacked_sequences, encoder)
-        #     loss = train_step(reshaped_data,masks, model, encoder, criterion, optimizer, device,batch_size)
-        #     epoch_loss += loss.item()
-        #     train_loss.append(loss)
+            reshaped_data = data_preprocessing(batched_stacked_sequences, encoder)
+            loss = train_step(reshaped_data,masks, model, encoder, criterion, optimizer, device,batch_size)
+            epoch_loss += loss.item()
+            train_loss.append(loss)
 
-        #     logging.info(f"\tIteration: {i}, loss:{loss.item()}")
-        #     if rank==0: csv_logger.log(epoch,i,loss)
+            logging.info(f"\tIteration: {i}, loss:{loss.item()}")
+            if rank==0: csv_logger.log(epoch,i,loss)
         
-        # latest_path =f'model_checkpoints/curr_mask_prediction/EPOCH_{epoch}_new'
+        latest_path =f'model_checkpoints/curr_mask_prediction/EPOCH_{epoch}_new'
         
-        # save_checkpoint(model=model,epoch=epoch, optimizer=optimizer,loss=epoch_loss/len(train_loader), path=latest_path,rank=rank)
+        save_checkpoint(model=model,epoch=epoch, optimizer=optimizer,loss=epoch_loss/len(train_loader), path=latest_path,rank=rank)
         
-        # logging.info(f"\t We got an average training loss of {epoch_loss/len(train_loader)}")
+        logging.info(f"\t We got an average training loss of {epoch_loss/len(train_loader)}")
         
         model.eval()
         epoch_loss = 0
