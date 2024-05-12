@@ -8,6 +8,7 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel
 from torch.nn import Module
 from matplotlib import pyplot as plt
+import matplotlib.colors as mcolors
 from dl_src.video_utils import make_transforms
 from dl_src.DL_utils import VideoFrameNextSegmentationDataset
 from dl_src.encoder import get_encoder_model
@@ -105,7 +106,7 @@ def val_step(data, masks,model, encoder, criterion, device,batch_size,number_of_
 
     loss = criterion(output,_masks)
 
-    return loss, _masks
+    return loss, output
 
 def total_variation_loss(logits):
     # Assuming 'prob_maps' is of shape [batch_size, num_classes, height, width]
@@ -119,7 +120,7 @@ def total_variation_loss(logits):
 def main():
     train_directory = '/teamspace/uploads/test/train'
     valid_directory = '/teamspace/uploads/test/val'
-    latest_path = 'model_checkpoints/curr_mask_prediction/EPOCH_31_lr'
+    latest_path = 'model_checkpoints/curr_mask_prediction/EPOCH_40_new'
     log_file= 'model_checkpoints/curr_mask_prediction/training_no_tv'
     val_log_file= 'model_checkpoints/curr_mask_prediction/validation_no_tv'
     use_latest_path = True
@@ -140,7 +141,7 @@ def main():
     batch_size = 25
     # 1e-3 up until epoch 19 training loss stagnates around .4
     # 1e-4 from epoch 20 to 32
-    lr= 1e-4 
+    lr= 1e-3
 
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -197,8 +198,13 @@ def main():
     logging.info("Model")
     model = UNet(num_channels=num_channels, n_classes=num_classes, feature_size=feature_size, bilinear=True).to(device, non_blocking=True)
     model = DistributedDataParallel(model, static_graph=True)
+    
+    # Define weights for each class
+    class_weights = torch.ones(49).to(device, non_blocking=True)
+    class_weights[0] = 0.005  # Set a lower weight for the over-represented class 0
 
-    criterion = nn.CrossEntropyLoss()
+    # Use weighted CrossEntropyLoss
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
 
     train_loss = []
@@ -206,8 +212,8 @@ def main():
     logging.info(f"start training")
     # logging.info(f"Number of batches:{len(train_loader)}")
     start_epoch = 0
-    jaccard = JaccardIndex(task="multiclass", num_classes=49)
-    jaccard = jaccard
+    # jaccard = JaccardIndex(task="multiclass", num_classes=49)
+    # jaccard = jaccard
     if os.path.exists(latest_path) and use_latest_path:
         model, optimizer, start_epoch, loss = load_checkpoint(model,optimizer,latest_path)
         start_epoch  = int(latest_path.split("_")[-2])+1
@@ -216,56 +222,84 @@ def main():
     for epoch in range(start_epoch,epochs):
         logging.info(f"EPOCH:{epoch}")
         epoch_loss = 0
-        train_sampler.set_epoch(epoch)  # This ensures shuffling for each epoch
+        # train_sampler.set_epoch(epoch)  # This ensures shuffling for each epoch
 
-        for i,data in enumerate(train_loader): # BATCH_SIZE IS NUMBER OF VIDEOS
-            batched_stacked_sequences, masks = data
-            batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
-            batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
+        # for i,data in enumerate(train_loader): # BATCH_SIZE IS NUMBER OF VIDEOS
+        #     batched_stacked_sequences, masks = data
+        #     batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
+        #     batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
 
-            masks = masks.to(device, non_blocking=True)
+        #     masks = masks.to(device, non_blocking=True)
 
-            reshaped_data = data_preprocessing(batched_stacked_sequences, encoder)
-            loss =train_step(reshaped_data,masks, model, encoder, criterion, optimizer, device,batch_size)
-            epoch_loss += loss.item()
-            train_loss.append(loss)
+        #     reshaped_data = data_preprocessing(batched_stacked_sequences, encoder)
+        #     loss = train_step(reshaped_data,masks, model, encoder, criterion, optimizer, device,batch_size)
+        #     epoch_loss += loss.item()
+        #     train_loss.append(loss)
 
-            logging.info(f"\tIteration: {i}, loss:{loss.item()}")
-            if rank==0: csv_logger.log(epoch,i,loss)
+        #     logging.info(f"\tIteration: {i}, loss:{loss.item()}")
+        #     if rank==0: csv_logger.log(epoch,i,loss)
         
-        latest_path =f'model_checkpoints/curr_mask_prediction/EPOCH_{epoch}_lr'
+        # latest_path =f'model_checkpoints/curr_mask_prediction/EPOCH_{epoch}_new'
         
-        save_checkpoint(model=model,epoch=epoch, optimizer=optimizer,loss=epoch_loss/len(train_loader), path=latest_path,rank=rank)
+        # save_checkpoint(model=model,epoch=epoch, optimizer=optimizer,loss=epoch_loss/len(train_loader), path=latest_path,rank=rank)
         
-        logging.info(f"\t We got an average training loss of {epoch_loss/len(train_loader)}")
+        # logging.info(f"\t We got an average training loss of {epoch_loss/len(train_loader)}")
         
-        # model.eval()
-        # epoch_loss = 0
-        # if epoch %1 == 0:
-        #     valid_sampler.set_epoch(epoch)
-        #     average_jaccard = 0  # This ensures shuffling for each epoch
-        #     for i,data in enumerate(valid_loader):
-        #         batched_stacked_sequences, masks = data
+        model.eval()
+        epoch_loss = 0
+        if epoch %1 == 0:
+            valid_sampler.set_epoch(epoch)
+            average_jaccard = 0  # This ensures shuffling for each epoch
+            for i,data in enumerate(valid_loader):
+                batched_stacked_sequences, masks = data
                 
-        #         batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
-        #         batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
+                batched_stacked_sequences = batched_stacked_sequences.to(device, non_blocking=True)
+                batch_size,number_of_clips,color_channels,number_of_frames,height,width = batched_stacked_sequences.shape
                 
-        #         masks = masks.to(device, non_blocking=True)
-        #         reshaped_data = data_preprocessing(batched_stacked_sequences, encoder)
+                masks = masks.to(device, non_blocking=True)
+                reshaped_data = data_preprocessing(batched_stacked_sequences, encoder)
                 
-        #         loss, batched_semantic_mask = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
-        #         epoch_loss += loss.item()
-        #         val_loss.append(loss)
+                loss, batched_semantic_mask = val_step(reshaped_data, masks,model, encoder, criterion, device,batch_size)
+                print(f"masks:{masks.shape}")
+                print(f"batched_semantic_mask:{batched_semantic_mask.shape}")
+                batched_semantic_mask_idx = torch.argmax(batched_semantic_mask, dim=1)
+                print(f"batched_semantic_mask_idx:{batched_semantic_mask_idx.shape}")
+
+                epoch_loss += loss.item()
+                val_loss.append(loss)
 
 
-        #         masks = masks.reshape(batch_size * number_of_clips, original_height, original_width)
-        #         itr_jaccard =0
-        #         # itr_jaccard = jaccard(batched_semantic_mask.cpu().detach(), masks.cpu().detach())
-        #         # average_jaccard += itr_jaccard
+                batched_semantic_mask_idx = batched_semantic_mask_idx.reshape(batch_size,number_of_clips,original_height,original_width)
+                if rank  == 0:
+                    colors = plt.cm.get_cmap('tab20', num_classes)
 
-        #         logging.info(f"\tIteration: {i}, loss:{loss.item()}")
+                    # Normalize from 0 to number of classes
+                    norm = mcolors.Normalize(vmin=0, vmax=num_classes-1)
 
-        #         if rank == 0: csv_logger2.log(epoch + 1,i,loss.item(),itr_jaccard)
-        #     logging.info(f"Jaccard Value is: {average_jaccard/len(valid_loader)}")
+                    # Set up the figure and axis
+                    fig, axes = plt.subplots(1,3)
 
-        #     # logging.info(f"\t We got an average val loss of {epoch_loss/len(train_loader)}")
+                    
+                    axes[0].imshow(batched_semantic_mask_idx[0,0,:,:].cpu().detach().numpy(), cmap=colors, norm=norm)
+                    axes[1].imshow(masks[0,-1,:,:].cpu().detach().numpy(), cmap=colors, norm=norm)
+                    axes[2].imshow(torch.zeros_like(masks[0,-1,:,:].cpu().detach()).numpy()+1, cmap=colors, norm=norm)
+                    for ax in axes:
+                        ax.axis('off')  # Turn off the axis
+
+                    # Create a colorbar
+                    sm = plt.cm.ScalarMappable(cmap=colors, norm=norm)
+                    sm.set_array([])
+                    cbar = fig.colorbar(sm, ax=axes.ravel().tolist(), ticks=np.arange(num_classes), spacing='proportional')
+                    cbar.ax.set_yticklabels(np.arange(num_classes))  # Set text labels on the colorbar
+                    cbar.set_label('Class IDs')
+
+
+                    plt.savefig(f"plots/output_mask_{rank}_{epoch}.png")
+
+                    itr_jaccard =0
+                logging.info(f"\tIteration: {i}, loss:{loss.item()}")
+
+                if rank == 0: csv_logger2.log(epoch + 1,i,loss.item(),itr_jaccard)
+            logging.info(f"Jaccard Value is: {average_jaccard/len(valid_loader)}")
+
+            # logging.info(f"\t We got an average val loss of {epoch_loss/len(train_loader)}")
