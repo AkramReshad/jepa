@@ -101,7 +101,7 @@ def main(args):
     latest_path = 'model_checkpoints/next_prediction/EPOCH_14_'
     log_file= 'model_checkpoints/next_prediction/training_no_tv'
     val_log_file= 'model_checkpoints/next_prediction/validation_no_tv'
-    use_latest_path = True
+    use_latest_path = False
     use_jaccard = False
     seed = 0
 

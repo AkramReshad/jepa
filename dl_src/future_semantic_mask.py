@@ -113,7 +113,7 @@ def main(args):
     latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_25_noreg'
     log_file= 'model_checkpoints/future_mask_prediction/training_no_tv'
     val_log_file= 'model_checkpoints/future_mask_prediction/validation_no_tv'
-    use_latest_path = True
+    use_latest_path = False
     use_jaccard = False
     seed = 0
 

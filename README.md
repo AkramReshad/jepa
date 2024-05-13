@@ -4,21 +4,27 @@
 Follow Meta AI's instructions Below
 
 ## To train Predictor
+You must add datasets path to configs/evals/predictor.yaml
+
 ```bash
 python -m app.main \
-  --fname configs/pretrain/predictor.yaml \
+  --fname configs/evals/predictor.yaml \
   --devices cuda:0 cuda:1 cuda:2
 ```
 ## To train Segmentation Mask
+You must add datasets path to configs/evals/curr_semantic.yaml
+
 ```bash
 python -m app.main \
-  --fname configs/pretrain/curr_semantic.yaml \
+  --fname configs/evals/curr_semantic.yaml \
   --devices cuda:0 cuda:1 cuda:2
 ```  
-## To get inference 
+## To get inference
+You must add datasets path to configs/evals/inference.yaml
+
 ```bash
 python -m app.main \
-  --fname configs/pretrain/inference.yaml \
+  --fname configs/evals/inference.yaml \
   --devices cuda:0 cuda:1 cuda:2
 ```  
 

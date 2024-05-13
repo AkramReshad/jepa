@@ -31,8 +31,6 @@ class VideoFrameDataset(Dataset):
                 else:
                     self.videos.append([image_files, None])
 
-            if len(self.videos)>10:break
-
     def __len__(self):
         return len(self.videos)
 
@@ -79,7 +77,6 @@ class VideoFrameNextSegmentationDataset(Dataset):
                 else:
                     self.videos.append([image_files, None])
 
-            if len(self.videos)>100:break
 
     def __len__(self):
         return len(self.videos)
@@ -121,8 +118,6 @@ class VideoFrameNextPredictionDataset(Dataset):
                 else:
                     self.videos.append([image_files, None])
 
-            # if len(self.videos)>10:break
-
     def __len__(self):
         return len(self.videos)
 
@@ -160,7 +155,7 @@ class InferenceDataset(Dataset):
                         self.videos.append([image_files, masks])
                 else:
                     self.videos.append([image_files, None])
-            # if len(self.videos)>10:break
+
     def __len__(self):
         return len(self.videos)
 

@@ -82,7 +82,7 @@ def main(args):
     predictor_path = 'model_checkpoints/next_prediction/EPOCH_14_'
     log_file= 'model_checkpoints/inference/training_no_tv'
     val_log_file= 'model_checkpoints/inference/validation_no_tv'
-    use_latest_path = True
+    use_latest_path = False
     use_jaccard = True
     seed = 0
 
