@@ -72,9 +72,12 @@ class inference(nn.Module):
         return batched_encoded_sequences
 
 
-def main():
-    # hidden_directory = ''
-    valid_directory = '../hidden'
+def main(args):
+    args_data = args.get('data')
+    dataset_train_path = args_data.get('dataset_train')
+    dataset_val_path = args_data.get('dataset_val')
+    train_directory = dataset_train_path
+    valid_directory = dataset_val_path
     segmentation_path = 'model_checkpoints/curr_mask_prediction/EPOCH_31_lr'
     predictor_path = 'model_checkpoints/next_prediction/EPOCH_14_'
     log_file= 'model_checkpoints/inference/training_no_tv'

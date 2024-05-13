@@ -94,9 +94,10 @@ def val_step(batched_encoded_sequences,model, encoder, criterion, device,batch_s
 
 
 # Assuming the dataset class VideoFrameDataset is defined as above
-def main():
-    train_directory = '/teamspace/uploads/test/train'
-    valid_directory = '/teamspace/uploads/test/val'
+def main(args):
+    data = args.get('data')
+    train_directory = data.get('dataset_train')
+    valid_directory = data.get('dataset_val')
     latest_path = 'model_checkpoints/next_prediction/EPOCH_14_'
     log_file= 'model_checkpoints/next_prediction/training_no_tv'
     val_log_file= 'model_checkpoints/next_prediction/validation_no_tv'
@@ -160,7 +161,6 @@ def main():
     for param in encoder.parameters():
         param.requires_grad = False
     
-
     transform = make_transforms(training=False)
     logging.info("Datasets")
     dataset = VideoFrameNextPredictionDataset(train_directory, transform)

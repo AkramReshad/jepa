@@ -4,8 +4,8 @@ tasks_per_node: 8
 eval_name: DeepLearningSemantic
 resume_checkpoint: true
 data:
-  dataset_train: data_jepa.csv
-  dataset_val: /your_path_to_ssv2_val_csv_file_index.csv
+  dataset_train: /your_path_to_train_csv_file
+  dataset_val: /your_path_to_val_csv_file
   dataset_type: VideoDataset
   num_classes: 174
   frames_per_clip: 21

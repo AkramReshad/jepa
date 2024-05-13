@@ -1,3 +1,29 @@
+# Our Code is in dl-src folder
+
+## To train (V-JEPA) Encoder
+Follow Meta AI's instructions Below
+
+## To train Predictor
+```bash
+python -m app.main \
+  --fname configs/pretrain/predictor.yaml \
+  --devices cuda:0 cuda:1 cuda:2
+```
+## To train Segmentation Mask
+```bash
+python -m app.main \
+  --fname configs/pretrain/curr_semantic.yaml \
+  --devices cuda:0 cuda:1 cuda:2
+```  
+## To get inference 
+```bash
+python -m app.main \
+  --fname configs/pretrain/inference.yaml \
+  --devices cuda:0 cuda:1 cuda:2
+```  
+
+# EVERYTHING BELOW IS META AI's
+
 # V-JEPA: Video Joint Embedding Predictive Architecture
 
 Official PyTorch codebase for the _video joint-embedding predictive architecture_, V-JEPA, a method for self-supervised learning of visual representations from video.

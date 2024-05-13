@@ -103,9 +103,13 @@ def total_variation_loss(logits):
     tv_loss = torch.sum(torch.abs(pixel_dif1), dim=sum_axis) + torch.sum(torch.abs(pixel_dif2), dim=sum_axis)
     return tv_loss.mean()
 
-def main():
-    train_directory = '/teamspace/uploads/test/train'
-    valid_directory = '/teamspace/uploads/test/val'
+def main(args):
+    
+    args_data = args.get('data')
+    dataset_train_path = args_data.get('dataset_train')
+    dataset_val_path = args_data.get('dataset_val')
+    train_directory = dataset_train_path
+    valid_directory = dataset_val_path
     latest_path = 'model_checkpoints/future_mask_prediction/EPOCH_25_noreg'
     log_file= 'model_checkpoints/future_mask_prediction/training_no_tv'
     val_log_file= 'model_checkpoints/future_mask_prediction/validation_no_tv'

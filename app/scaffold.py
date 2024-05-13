@@ -44,6 +44,6 @@ def main(app, args, resume_preempt=False):
         print("error finding app called {app}")
         return 0
     if app != 'vjepa':
-        return main_func()  
+        return main_func(args=args)  
     else:
         importlib.import_module(f'app.{app}.train').main(args=args,resume_preempt=resume_preempt)
